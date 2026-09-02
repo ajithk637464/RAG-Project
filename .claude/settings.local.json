@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip --version)",
+      "Bash(where python *)",
+      "Bash(python -m venv venv)",
+      "Bash(./venv/Scripts/python.exe --version)",
+      "Bash(./venv/Scripts/python.exe -m pip install --upgrade pip -q)",
+      "Bash(./venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(\"D:/Recipe RAG Project/venv/Scripts/python.exe\" make_test_pdf.py)",
+      "Bash(./venv/Scripts/python.exe ingest.py)",
+      "Bash(./venv/Scripts/python.exe rag.py)",
+      "Bash(venv/Scripts/python.exe rag.py)",
+      "Bash(venv/Scripts/python.exe -m streamlit run app.py --server.headless true)",
+      "Bash(curl -s -m 2 http://localhost:8501/_stcore/health)",
+      "Bash(venv/Scripts/python.exe -c ' *)",
+      "Bash(where ollama *)",
+      "Bash(ollama --version)",
+      "Bash(ollama list *)"
+    ]
+  }
+}
