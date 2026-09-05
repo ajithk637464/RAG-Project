@@ -53,7 +53,13 @@ for msg in st.session_state.messages:
                 st.markdown(f"- {line}")
             with st.expander("Show retrieved chunks (debug)"):
                 for c in msg["chunks"]:
-                    st.markdown(f"`distance={c['distance']:.3f}` **{c['source']} p.{c['page']}**")
+                    distance = f"{c['distance']:.3f}" if c.get("distance") is not None else "n/a"
+                    st.markdown(
+                        f"**{c['source']} p.{c['page']}** | "
+                        f"RRF `{c.get('rrf_score', 0):.4f}` | "
+                        f"semantic rank `{c.get('semantic_rank', 'n/a')}` | "
+                        f"BM25 rank `{c.get('bm25_rank', 'n/a')}` | distance `{distance}`"
+                    )
                     st.text(c["text"])
 
 question = st.chat_input("Ask a question about your cookbook...")
@@ -80,7 +86,13 @@ if question:
                 st.markdown(f"- {line}")
             with st.expander("Show retrieved chunks (debug)"):
                 for c in chunks:
-                    st.markdown(f"`distance={c['distance']:.3f}` **{c['source']} p.{c['page']}**")
+                    distance = f"{c['distance']:.3f}" if c.get("distance") is not None else "n/a"
+                    st.markdown(
+                        f"**{c['source']} p.{c['page']}** | "
+                        f"RRF `{c.get('rrf_score', 0):.4f}` | "
+                        f"semantic rank `{c.get('semantic_rank', 'n/a')}` | "
+                        f"BM25 rank `{c.get('bm25_rank', 'n/a')}` | distance `{distance}`"
+                    )
                     st.text(c["text"])
 
     st.session_state.messages.append({"role": "assistant", "content": answer, "chunks": chunks})

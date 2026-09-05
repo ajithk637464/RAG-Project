@@ -6,8 +6,11 @@ An embedding is a fixed-length vector (list of numbers) that represents the
 that are close together in space, even if they share no exact words. That's
 what lets us search by meaning instead of exact keyword matching.
 """
+import re
+
 import chromadb
 from openai import OpenAI
+from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 import config
@@ -16,6 +19,10 @@ import ingest
 _model = None
 _client = None
 _openai_client = None
+_bm25 = None
+_bm25_records = []
+_bm25_collection_name = None
+RRF_K = 60
 
 # The LLM is only allowed to answer from these chunks - never from its own
 # training knowledge. This is what stops it from inventing recipes.
@@ -96,7 +103,42 @@ def store_chunks(chunks: list[dict]) -> int:
     ]
 
     collection.add(ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
+    _set_bm25_index(chunks)
     return len(chunks)
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _set_bm25_index(chunks: list[dict]) -> None:
+    global _bm25, _bm25_records, _bm25_collection_name
+    _bm25_records = chunks
+    _bm25 = BM25Okapi([_tokenize(c["text"]) for c in chunks]) if chunks else None
+    _bm25_collection_name = config.COLLECTION_NAME
+
+
+def _get_bm25_index() -> tuple[BM25Okapi, list[dict]]:
+    """Load a BM25 index from the active persisted Chroma collection when needed."""
+    if _bm25_collection_name == config.COLLECTION_NAME and _bm25 is not None:
+        return _bm25, _bm25_records
+
+    collection = get_collection()
+    stored = collection.get(include=["documents", "metadatas"])
+    records = [
+        {
+            "text": text,
+            "source": metadata["source"],
+            "page": metadata["page"],
+            "recipe_name": metadata.get("recipe_name") or None,
+            "id": chunk_id,
+        }
+        for chunk_id, text, metadata in zip(
+            stored["ids"], stored["documents"], stored["metadatas"]
+        )
+    ]
+    _set_bm25_index(records)
+    return _bm25, _bm25_records
 
 
 def build_index(reset: bool = True) -> int:
@@ -109,6 +151,10 @@ def build_index(reset: bool = True) -> int:
     """
     client = get_chroma_client()
     if reset:
+        global _bm25, _bm25_records, _bm25_collection_name
+        _bm25 = None
+        _bm25_records = []
+        _bm25_collection_name = None
         try:
             client.delete_collection(config.COLLECTION_NAME)
         except Exception:
@@ -120,7 +166,7 @@ def build_index(reset: bool = True) -> int:
     return stored
 
 
-def retrieve(question: str, top_k: int = None) -> list[dict]:
+def retrieve_semantic(question: str, top_k: int = None) -> list[dict]:
     """
     Phase 6: embed a question and find the TOP_K most similar chunks.
 
@@ -133,17 +179,75 @@ def retrieve(question: str, top_k: int = None) -> list[dict]:
     results = collection.query(query_embeddings=query_vector, n_results=top_k)
 
     retrieved = []
-    for doc, meta, dist in zip(
-        results["documents"][0], results["metadatas"][0], results["distances"][0]
+    for chunk_id, doc, meta, dist in zip(
+        results["ids"][0], results["documents"][0], results["metadatas"][0], results["distances"][0]
     ):
         retrieved.append({
+            "id": chunk_id,
             "text": doc,
             "source": meta["source"],
             "page": meta["page"],
             "recipe_name": meta["recipe_name"] or None,
             "distance": dist,
+            "semantic_rank": len(retrieved) + 1,
+            "bm25_rank": None,
+            "rrf_score": None,
+            "search_type": "semantic",
         })
     return retrieved
+
+
+def retrieve_bm25(question: str, top_k: int = None) -> list[dict]:
+    """Find keyword-overlapping chunks with BM25."""
+    top_k = top_k or config.TOP_K
+    index, records = _get_bm25_index()
+    if index is None:
+        return []
+
+    scores = index.get_scores(_tokenize(question))
+    ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+    return [
+        {
+            **records[i],
+            "distance": None,
+            "semantic_rank": None,
+            "bm25_rank": rank,
+            "bm25_score": float(scores[i]),
+            "rrf_score": None,
+            "search_type": "bm25",
+        }
+        for rank, i in enumerate(ranked_indices, start=1)
+    ]
+
+
+def retrieve(question: str, top_k: int = None, hybrid: bool = True) -> list[dict]:
+    """Retrieve semantic-only results or combine semantic and BM25 with RRF."""
+    top_k = top_k or config.TOP_K
+    semantic = retrieve_semantic(question, top_k)
+    if not hybrid:
+        return semantic
+
+    bm25 = retrieve_bm25(question, top_k)
+    combined = {}
+    for result in semantic + bm25:
+        key = result["id"] if "id" in result else (
+            result["source"], result["page"], result["text"]
+        )
+        item = combined.setdefault(
+            key,
+            {**result, "semantic_rank": None, "bm25_rank": None, "rrf_score": 0.0},
+        )
+        if result["search_type"] == "semantic":
+            item["semantic_rank"] = result["semantic_rank"]
+            item["distance"] = result["distance"]
+        else:
+            item["bm25_rank"] = result["bm25_rank"]
+            item["bm25_score"] = result["bm25_score"]
+        rank = result["semantic_rank"] or result["bm25_rank"]
+        item["rrf_score"] += 1 / (RRF_K + rank)
+        item["search_type"] = "hybrid"
+
+    return sorted(combined.values(), key=lambda item: item["rrf_score"], reverse=True)[:top_k]
 
 
 def get_llm_client() -> OpenAI:
