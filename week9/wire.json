@@ -1,0 +1,139 @@
+{
+  "model_call": "The model runs only in the host (mcp_agent.py calls rag.complete_chat) after tools/list, when it chooses a tool. initialize, notifications/initialized, tools/list, and tools/call do not call a model; the ingredient-db server only reads its table.",
+  "exchange": [
+    {
+      "direction": "client->server",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "recipe-agent", "version": "1.0.0"}
+        },
+        "id": 1
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker. Must be the string 2.0. Not a tool and not a model.",
+        "method": "Handshake method name. The server replies with its own capabilities. No tool runs.",
+        "params": "What the client is. protocolVersion is the MCP revision both sides agree on. capabilities is empty because this client only consumes tools. clientInfo names the host.",
+        "id": "Request id. The matching response must carry the same id. A notification has no id."
+      }
+    },
+    {
+      "direction": "server->client",
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {"tools": {"listChanged": false}, "resources": {}},
+          "serverInfo": {"name": "ingredient-db", "version": "1.0.0"}
+        }
+      },
+      "annotations": {
+        "jsonrpc": "Same protocol marker on the response.",
+        "id": "Echo of request 1, so the host knows this body answers initialize.",
+        "result": "Success payload. protocolVersion agrees. capabilities says this server has tools and resources, and the tool list will not change mid-session. serverInfo.name is ingredient-db, the second server. There is no error field because the handshake succeeded."
+      }
+    },
+    {
+      "direction": "client->server",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker on a notification.",
+        "method": "Tells the server the client finished the handshake. The server must not reply.",
+        "id": "Absent on purpose. No id means no response, so this message cannot be a tool result or a model reply.",
+        "params": "Absent. This notification carries no arguments."
+      }
+    },
+    {
+      "direction": "client->server",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "id": 2
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker.",
+        "method": "Discovery. The host asks what tools exist. It does not send a tool name, because it does not know them yet.",
+        "id": "Request id 2. The tool catalogue comes back with this id.",
+        "params": "Absent. tools/list takes no arguments on this server."
+      }
+    },
+    {
+      "direction": "server->client",
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "lookup_allergen",
+              "description": "Look up allergen flags for one ingredient name. Input: {\"ingredient\": \"butter\"}. If the text says try another spelling, call lookup_allergen again with that name. Do not invent allergen flags.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {"ingredient": {"type": "string"}},
+                "required": ["ingredient"]
+              }
+            },
+            {
+              "name": "lookup_nutrition",
+              "description": "Look up per-100g nutrition for one ingredient name. Input: {\"ingredient\": \"butter\"}. If the token cannot read nutrition, say so and do not invent numbers.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {"ingredient": {"type": "string"}},
+                "required": ["ingredient"]
+              }
+            }
+          ]
+        }
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker.",
+        "id": "Matches the tools/list request.",
+        "result": "The discovered tools. Only lookup_allergen and lookup_nutrition. The allergen matrix is not in this list; it is a resource the host reads separately. These names are what the agent prompt is built from."
+      }
+    },
+    {
+      "direction": "client->server",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "name": "lookup_allergen",
+          "arguments": {"ingredient": "butter"}
+        },
+        "id": 3
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker.",
+        "method": "Invoke one discovered tool. This is still the host talking to the server, not a model call.",
+        "params": "name is lookup_allergen, taken from tools/list. arguments.ingredient is the value the model chose after it saw the tool description.",
+        "id": "Request id 3. The tool result comes back with this id."
+      }
+    },
+    {
+      "direction": "server->client",
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "content": [
+            {"type": "text", "text": "{\"ingredient\": \"butter\", \"allergens\": [\"milk\"]}"}
+          ],
+          "isError": false
+        }
+      },
+      "annotations": {
+        "jsonrpc": "Protocol marker.",
+        "id": "Matches the tools/call request.",
+        "result": "Tool output. content[0].text is the table row for butter (allergen milk). isError false means the name matched. The server did not generate this sentence with a model.",
+        "error": "Absent. A JSON-RPC error object would mean the call itself failed (bad method, bad params). A missed ingredient is a tool result with isError true, not this field."
+      }
+    }
+  ]
+}

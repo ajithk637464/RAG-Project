@@ -1,0 +1,124 @@
+[
+  {
+    "direction": "client->server",
+    "body": {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {
+          "name": "recipe-agent",
+          "version": "1.0.0"
+        }
+      },
+      "id": 1
+    }
+  },
+  {
+    "direction": "server->client",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {
+          "tools": {
+            "listChanged": false
+          },
+          "resources": {}
+        },
+        "serverInfo": {
+          "name": "ingredient-db",
+          "version": "1.0.0"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client->server",
+    "body": {
+      "jsonrpc": "2.0",
+      "method": "notifications/initialized"
+    }
+  },
+  {
+    "direction": "client->server",
+    "body": {
+      "jsonrpc": "2.0",
+      "method": "tools/list",
+      "id": 2
+    }
+  },
+  {
+    "direction": "server->client",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "tools": [
+          {
+            "name": "lookup_allergen",
+            "description": "Look up allergen flags for one ingredient name. Input: {\"ingredient\": \"butter\"}. If the text says try another spelling, call lookup_allergen again with that name. Do not invent allergen flags.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "ingredient": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ingredient"
+              ]
+            }
+          },
+          {
+            "name": "lookup_nutrition",
+            "description": "Look up per-100g nutrition for one ingredient name. Input: {\"ingredient\": \"butter\"}. If the token cannot read nutrition, say so and do not invent numbers.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "ingredient": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ingredient"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client->server",
+    "body": {
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "params": {
+        "name": "lookup_allergen",
+        "arguments": {
+          "ingredient": "butter"
+        }
+      },
+      "id": 3
+    }
+  },
+  {
+    "direction": "server->client",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ingredient\": \"butter\", \"allergens\": [\"milk\"]}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  }
+]

@@ -1,0 +1,3 @@
+tool=lookup_allergen ingredient=butter token_scope=full
+tool=lookup_allergen ingredient=butter token_scope=full
+tool=lookup_allergen ingredient=butter token_scope=allergen-only

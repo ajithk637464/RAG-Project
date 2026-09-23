@@ -1,0 +1,21 @@
+Agent module, recipe-search only versus recipe-search plus ingredient-db: 0 lines changed.
+
+Both configs load the same mcp_agent.py, mcp_host.py, and agent.py. None of those files names the ingredient database or its tools. The host loops mcp_config.json and keeps whatever tools/list returns.
+
+SHA256 at the moment the ingredient-db entry was inserted into mcp_config.json (before and after that insert, same bytes):
+mcp_agent.py 0135b43216445f22c3c2b2e6353ee72d4e480af9fc36dc4a6ff2694fc3927ded
+agent.py     dcd97b9a2afcaed452d0477ef700acc170d49247b0d0f11331f532a081e6d6fe
+mcp_host.py  9b06b661eec764bd0c3483e39a0917e38541cb9fccdd3ad443b83412360d532c
+
+agent.py and mcp_host.py are still those bytes.
+mcp_agent.py was edited later, once, for both configs: if the model puts a discovered tool name in "action", the host uses it. That edit does not register a server. Current mcp_agent.py SHA256:
+22e63a0145486814a22bb56bf5c3b3a5ef01fd3abdc29399d3365af29d84ba06
+
+diff --git a/mcp_agent.py b/mcp_agent.py
+(no lines for the second server)
+
+diff --git a/mcp_host.py b/mcp_host.py
+(no lines)
+
+diff --git a/agent.py b/agent.py
+(no lines)

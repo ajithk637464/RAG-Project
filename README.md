@@ -259,3 +259,21 @@ python eval_week8.py
 ```
 
 Or open Streamlit and choose **Week 8 checks**. The command prints the before/after quiet-give-up rate and whether the planted phrase survived.
+
+## Week 9 — MCP
+
+The recipe assistant discovers tools over stdio JSON-RPC. It does not keep a fixed tool list. `mcp_config.json` names the servers. `mcp_host.py` sends `initialize`, `notifications/initialized`, and `tools/list` to each one, then routes `tools/call` by the name the server advertised. `mcp_agent.py` builds the model prompt from that list. The model runs only there (`rag.complete_chat`). Neither MCP server calls a model.
+
+Servers:
+
+- `servers/recipe_server.py` — cookbook search, ingredient check, substitute, nutrition. Search is retrieval only.
+- `servers/ingredient_server.py` — `lookup_allergen` and `lookup_nutrition`. The allergen matrix is the resource `ingredient://allergen-matrix`, which the host attaches. It is not a tool.
+- `servers/gateway.py` — one front door. It fans out to both servers and writes `week9/gateway_audit.log` with the caller, tool, and ingredient. Token `ingredient-db-allergen-only` denies nutrition and still allows allergen lookup.
+
+```
+python mcp_agent.py "What allergens does butter have?"
+```
+
+That trace should show `tool=lookup_allergen server=ingredient-db`.
+
+Week 9 write-up is in `week9/`: `agent_diff.txt` (no agent lines for the second server), `config_diff.txt`, `wire.json`, `tool_counts.txt` (4 before, 6 after), `error_before_after.md`, `risk_note.md`, `gateway_denial.md`.

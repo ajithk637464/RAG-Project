@@ -1,0 +1,18 @@
+{
+  "servers": [
+    {
+      "name": "recipe-search",
+      "command": "python",
+      "args": ["servers/recipe_server.py"],
+      "env": {}
+    },
+    {
+      "name": "ingredient-db",
+      "command": "python",
+      "args": ["servers/ingredient_server.py"],
+      "env": {
+        "INGREDIENT_DB_TOKEN": "ingredient-db-full"
+      }
+    }
+  ]
+}

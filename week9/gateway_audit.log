@@ -1,0 +1,2 @@
+caller=recipe-agent tool=lookup_allergen ingredient=butter outcome=ok
+caller=recipe-agent tool=lookup_nutrition ingredient=butter outcome=denied

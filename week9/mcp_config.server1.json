@@ -1,0 +1,10 @@
+{
+  "servers": [
+    {
+      "name": "recipe-search",
+      "command": "python",
+      "args": ["servers/recipe_server.py"],
+      "env": {}
+    }
+  ]
+}

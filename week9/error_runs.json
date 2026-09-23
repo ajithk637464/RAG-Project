@@ -1,0 +1,117 @@
+{
+  "before": {
+    "question": "What can I use instead of creme fraiche lite?",
+    "answer": "You can use sour cream or plain Greek yogurt as a substitute for creme fraiche lite.",
+    "steps": [
+      {
+        "step": 1,
+        "thought": "",
+        "tool": "find_substitute",
+        "server": "recipe-search",
+        "arguments": {
+          "q": "creme fraiche lite substitute"
+        },
+        "is_error": true,
+        "observation": "find_substitute needs an ingredient name."
+      },
+      {
+        "step": 2,
+        "thought": "",
+        "tool": "find_substitute",
+        "server": "recipe-search",
+        "arguments": {
+          "ingredient": "creme fraiche lite"
+        },
+        "is_error": true,
+        "observation": "Error 3"
+      },
+      {
+        "step": 3,
+        "thought": "",
+        "final": true,
+        "observation": "You can use sour cream or plain Greek yogurt as a substitute for creme fraiche lite."
+      }
+    ],
+    "tools": [
+      {
+        "name": "search_recipes",
+        "server": "recipe-search"
+      },
+      {
+        "name": "check_ingredients",
+        "server": "recipe-search"
+      },
+      {
+        "name": "find_substitute",
+        "server": "recipe-search"
+      },
+      {
+        "name": "calculate_nutrition",
+        "server": "recipe-search"
+      }
+    ]
+  },
+  "after": {
+    "question": "What can I use instead of creme fraiche lite?",
+    "answer": "sour cream, or equal parts heavy cream and plain yogurt",
+    "steps": [
+      {
+        "step": 1,
+        "thought": "",
+        "tool": "find_substitute",
+        "server": "recipe-search",
+        "arguments": {
+          "ingredient": "creme fraiche lite"
+        },
+        "is_error": true,
+        "observation": "no substitute matched 'creme fraiche lite': try 'creme fraiche'"
+      },
+      {
+        "step": 2,
+        "thought": "",
+        "tool": "find_substitute",
+        "server": "recipe-search",
+        "arguments": {
+          "ingredient": "creme fraiche"
+        },
+        "is_error": false,
+        "observation": "{\"ingredient\": \"creme fraiche\", \"substitute\": \"sour cream, or equal parts heavy cream and plain yogurt\", \"source\": \"recipe-search substitute table\"}"
+      },
+      {
+        "step": 3,
+        "thought": "",
+        "tool": "find_substitute",
+        "server": "recipe-search",
+        "arguments": {
+          "ingredient": "creme fraiche"
+        },
+        "is_error": false,
+        "observation": "{\"ingredient\": \"creme fraiche\", \"substitute\": \"sour cream, or equal parts heavy cream and plain yogurt\", \"source\": \"recipe-search substitute table\"}"
+      },
+      {
+        "step": 4,
+        "thought": "",
+        "final": true,
+        "observation": "sour cream, or equal parts heavy cream and plain yogurt"
+      }
+    ],
+    "tools": [
+      {
+        "name": "search_recipes",
+        "server": "recipe-search"
+      },
+      {
+        "name": "check_ingredients",
+        "server": "recipe-search"
+      },
+      {
+        "name": "find_substitute",
+        "server": "recipe-search"
+      },
+      {
+        "name": "calculate_nutrition",
+        "server": "recipe-search"
+      }
+    ]
+  }
+}

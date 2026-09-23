@@ -1,0 +1,12 @@
+{
+  "servers": [
+    {
+      "name": "recipe-gateway",
+      "command": "python",
+      "args": ["servers/gateway.py"],
+      "env": {
+        "INGREDIENT_DB_TOKEN": "ingredient-db-allergen-only"
+      }
+    }
+  ]
+}

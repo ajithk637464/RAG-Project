@@ -1,0 +1,3 @@
+4 before -> 6 after
+before: search_recipes [recipe-search], check_ingredients [recipe-search], find_substitute [recipe-search], calculate_nutrition [recipe-search]
+after: search_recipes [recipe-search], check_ingredients [recipe-search], find_substitute [recipe-search], calculate_nutrition [recipe-search], lookup_allergen [ingredient-db], lookup_nutrition [ingredient-db]

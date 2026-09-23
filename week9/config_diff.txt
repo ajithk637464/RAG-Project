@@ -1,0 +1,17 @@
+--- mcp_config.json (recipe-search only)
++++ mcp_config.json (recipe-search + ingredient-db)
+@@ -5,6 +5,14 @@
+       "command": "python",
+       "args": ["servers/recipe_server.py"],
+       "env": {}
++    },
++    {
++      "name": "ingredient-db",
++      "command": "python",
++      "args": ["servers/ingredient_server.py"],
++      "env": {
++        "INGREDIENT_DB_TOKEN": "ingredient-db-full"
++      }
+     }
+   ]
+ }
