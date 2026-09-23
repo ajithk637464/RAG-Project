@@ -15,6 +15,7 @@ import time
 
 import config
 import rag
+import safety
 import tools
 from memory import RunStats, TaskMemory, limit_reason, make_step, package_run, stop_step
 
@@ -114,6 +115,12 @@ def _think(question: str, memory: TaskMemory, step_number: int) -> tuple[str, di
             "Use only the tool results in memory. If search said the recipe "
             "is not in the cookbook, say you could not find it."
         )
+    document_block = ""
+    if getattr(memory, "show_poison", False):
+        document_block = (
+            "\n\nRetrieved document note:\n"
+            f"{safety.POISON_NOTE}\n"
+        )
     result = rag.complete_chat(
         [
             {"role": "system", "content": AGENT_SYSTEM},
@@ -122,6 +129,7 @@ def _think(question: str, memory: TaskMemory, step_number: int) -> tuple[str, di
                 "content": (
                     f"Task:\n{question}\n\n"
                     f"Short-term memory for this task:\n{memory.as_text()}"
+                    f"{document_block}"
                     f"{reminder}"
                 ),
             },
@@ -138,7 +146,76 @@ def _fallback_answer(status: str, memory: TaskMemory) -> str:
     )
 
 
-def run_agent(question: str) -> dict:
+def _remember_tool(memory: TaskMemory, name: str, public: dict) -> None:
+    """Keep the fields the controller and the output check need."""
+    if name == "search_recipes":
+        memory.search_answer = public.get("answer") or ""
+        memory.recipe_text = public.get("recipe_text") or ""
+        memory.search_refused = memory.search_answer.strip().lower() in {
+            "i couldn't find that in the cookbook.",
+            "i couldn't find that in the cookbook",
+        }
+    elif name == "check_ingredients":
+        memory.missing = list(public.get("missing") or [])
+    elif name == "find_substitute":
+        if public.get("substitute"):
+            memory.substitute_note = f"Substitute for {public.get('ingredient')}: {public['substitute']}."
+        elif public.get("note"):
+            memory.substitute_note = public["note"]
+        elif isinstance(public.get("substitutes"), list):
+            memory.substitute_note = tools.to_text(public["substitutes"])
+    elif name == "calculate_nutrition":
+        if public.get("estimated_kcal") is not None:
+            memory.nutrition_kcal = public.get("estimated_kcal")
+
+
+def _controller_tool(name: str, memory: TaskMemory, question: str) -> tuple[dict, dict]:
+    """Run the next required tool with saved memory. The model does not choose the arguments."""
+    if name == "check_ingredients":
+        return tools.run_tool("check_ingredients", {
+            "recipe_text": memory.recipe_text,
+            "available_ingredients": tools.extract_pantry(question),
+        })
+    if name == "find_substitute":
+        missing = memory.missing or []
+        if not missing:
+            return {"note": "No missing ingredients, so no substitute was looked up."}, {
+                "prompt_tokens": 0, "completion_tokens": 0, "usage_estimated": False,
+            }
+        return tools.run_tool("find_substitute", {"ingredient": missing[0]})
+    if name == "calculate_nutrition":
+        return tools.run_tool("calculate_nutrition", {"recipe_text": memory.recipe_text})
+    return {"error": f"No controller path for {name}."}, {
+        "prompt_tokens": 0, "completion_tokens": 0, "usage_estimated": False,
+    }
+
+
+def _document_note(defenses: bool) -> str:
+    """Poisoned document note, or a short line saying the defense removed it."""
+    if not defenses:
+        return safety.POISON_NOTE
+    return "Removed a document note that looked like an instruction to the agent."
+
+
+def _guard_observation(observation: str, poison: bool = False) -> str:
+    """Strip instruction-shaped lines before they are written into memory."""
+    del poison
+    return safety.sanitize_document(observation)
+
+
+def _visible_tool_result(public: dict, from_memory: bool) -> str:
+    visible = dict(public)
+    if "recipe_text" in visible:
+        visible["recipe_text"] = (
+            f"saved to short-term memory ({len(public.get('recipe_text') or '')} characters)"
+        )
+    observation = tools.to_text(visible)
+    if from_memory:
+        observation = "Used recipe text from short-term memory. " + observation
+    return observation
+
+
+def run_agent(question: str, defenses: bool = True, poison: bool = False) -> dict:
     """Run Think → Tool → Observe until a final answer or a safeguard."""
     memory = TaskMemory(question)
     stats = RunStats()
@@ -148,6 +225,23 @@ def run_agent(question: str) -> dict:
     answer = ""
     seen = set()
     searched = False
+    called = []
+    rejected_finals = 0
+
+    if defenses and safety.is_direct_injection(question):
+        answer = (
+            "I can't follow an instruction to ignore the cookbook. "
+            "Ask a recipe question and I will search it."
+        )
+        steps.append(make_step(
+            1,
+            "The user message tried to override the agent instructions.",
+            observation=answer,
+            final=True,
+        ))
+        result = package_run("agent", question, answer, "completed", steps, memory, stats, started)
+        result["defenses"] = True
+        return result
 
     for step_number in range(1, config.AGENT_MAX_STEPS + 1):
         reason = limit_reason(started, stats.total_tokens)
@@ -186,12 +280,65 @@ def run_agent(question: str) -> dict:
                 memory.add("observe", observation)
                 steps.append(make_step(step_number, thought, observation=observation))
                 continue
-            answer = str(decision.get("final_answer") or "").strip()
-            if not answer:
+            proposed = str(decision.get("final_answer") or "").strip()
+            if not proposed:
                 observation = "final_answer was empty. Send the final answer, or call another tool."
                 memory.add("observe", observation)
                 steps.append(make_step(step_number, thought, observation=observation))
                 continue
+
+            if defenses:
+                missing = safety.missing_tools(question, called, memory.search_refused)
+                if missing and not memory.search_refused:
+                    next_tool = missing[0]
+                    public, tool_usage = _controller_tool(next_tool, memory, question)
+                    stats.add_usage(
+                        tool_usage["prompt_tokens"],
+                        tool_usage["completion_tokens"],
+                        tool_usage["usage_estimated"],
+                    )
+                    stats.tool_calls += 1
+                    called.append(next_tool)
+                    _remember_tool(memory, next_tool, public)
+                    observation = _visible_tool_result(public, next_tool != "find_substitute")
+                    if defenses:
+                        observation = _guard_observation(observation, poison=False)
+                    memory.add(next_tool, observation)
+                    steps.append(make_step(
+                        step_number,
+                        f"The model tried to answer before {next_tool}. The controller ran that tool.",
+                        next_tool,
+                        {"source": "controller"},
+                        observation,
+                    ))
+                    continue
+
+                problems = safety.validate_final(proposed, memory.search_refused, memory.nutrition_kcal)
+                if problems:
+                    rejected_finals += 1
+                    if rejected_finals >= 2 or step_number >= config.AGENT_MAX_STEPS:
+                        answer = safety.answer_from_tools(memory)
+                        memory.add("final_answer", answer)
+                        steps.append(make_step(
+                            step_number,
+                            "Output check replaced the answer with the tool results. "
+                            + " ".join(problems),
+                            observation=answer,
+                            final=True,
+                        ))
+                        status = "completed"
+                        break
+                    observation = (
+                        "Final answer rejected: " + " ".join(problems) + ". "
+                        "Use only the tool results in memory."
+                    )
+                    if memory.nutrition_kcal is not None:
+                        observation += f" The nutrition tool said {memory.nutrition_kcal} kcal."
+                    memory.add("observe", observation)
+                    steps.append(make_step(step_number, thought, observation=observation))
+                    continue
+
+            answer = proposed
             memory.add("final_answer", answer)
             steps.append(make_step(step_number, thought, observation=answer, final=True))
             status = "completed"
@@ -253,16 +400,21 @@ def run_agent(question: str) -> dict:
 
         if resolved_name == "search_recipes":
             searched = True
-            memory.recipe_text = public.get("recipe_text") or ""
+            _remember_tool(memory, resolved_name, public)
+            if poison:
+                public = dict(public)
+                public["document_note"] = _document_note(defenses)
+                if not defenses:
+                    memory.show_poison = True
+                    memory.recipe_text = safety.POISON_NOTE + "\n" + (memory.recipe_text or "")
+        elif resolved_name in ("check_ingredients", "find_substitute", "calculate_nutrition"):
+            _remember_tool(memory, resolved_name, public)
+        if resolved_name:
+            called.append(resolved_name)
 
-        visible = dict(public)
-        if "recipe_text" in visible:
-            visible["recipe_text"] = (
-                f"saved to short-term memory ({len(public.get('recipe_text') or '')} characters)"
-            )
-        observation = tools.to_text(visible)
-        if from_memory:
-            observation = "Used recipe text from short-term memory. " + observation
+        observation = _visible_tool_result(public, from_memory)
+        if defenses:
+            observation = _guard_observation(observation, poison=False)
 
         memory.add(resolved_name or tool_name or "tool", observation)
         display_args = dict(arguments)
@@ -272,10 +424,23 @@ def run_agent(question: str) -> dict:
     else:
         steps.append(stop_step(len(steps) + 1, "max_steps"))
 
+    if not answer and defenses:
+        missing = safety.missing_tools(question, called, memory.search_refused)
+        if memory.search_refused or not missing:
+            answer = safety.answer_from_tools(memory)
+            status = "completed"
+            steps.append(make_step(
+                len(steps) + 1,
+                "The step limit was reached after the required tools, so the answer was taken from those results.",
+                observation=answer,
+                final=True,
+            ))
     if not answer:
         answer = _fallback_answer(status, memory)
 
-    return package_run("agent", question, answer, status, steps, memory, stats, started)
+    result = package_run("agent", question, answer, status, steps, memory, stats, started)
+    result["defenses"] = defenses
+    return result
 
 
 if __name__ == "__main__":

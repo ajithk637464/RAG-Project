@@ -18,6 +18,12 @@ class TaskMemory:
         # Full cookbook excerpt from the latest search. Later tools read this
         # so the model does not have to copy a long recipe back into JSON.
         self.recipe_text = ""
+        self.search_answer = ""
+        self.search_refused = False
+        self.missing = None
+        self.nutrition_kcal = None
+        self.substitute_note = ""
+        self.show_poison = False
 
     def add(self, kind: str, content: str) -> None:
         self.notes.append({"kind": kind, "content": content})

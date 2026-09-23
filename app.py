@@ -10,6 +10,7 @@ import streamlit as st
 import agent
 import compare
 import config
+import eval_week8
 import rag
 import workflow
 
@@ -24,10 +25,12 @@ if "workflow_messages" not in st.session_state:
     st.session_state.workflow_messages = []
 if "comparison" not in st.session_state:
     st.session_state.comparison = None
+if "week8" not in st.session_state:
+    st.session_state.week8 = None
 
 mode = st.sidebar.radio(
     "Mode",
-    ["Cookbook chat", "Recipe agent", "Fixed workflow", "Comparison"],
+    ["Cookbook chat", "Recipe agent", "Fixed workflow", "Comparison", "Week 8 checks"],
 )
 st.sidebar.caption(
     f"Agent safeguards: MAX_STEPS={config.AGENT_MAX_STEPS}, "
@@ -280,6 +283,87 @@ def render_comparison() -> None:
                 render_run(row["workflow"])
 
 
+def render_week8() -> None:
+    st.caption(
+        "Checks the path, not only the final answer. "
+        "The top failure is a finished answer that skipped the ingredient, substitute, "
+        "or nutrition tool. A second check hides an instruction in a retrieved note "
+        "and shows whether the agent copies it."
+    )
+    st.markdown(
+        "Defenses on the recipe agent: document lines that look like instructions are "
+        "removed before they enter memory, a final answer is rejected when its calorie "
+        "number did not come from `calculate_nutrition`, and a skipped required tool "
+        "is run by the controller. Each tool can still only do the one job listed in "
+        "`safety.TOOL_RIGHTS`."
+    )
+    if st.button("Run before/after eval"):
+        with st.spinner("Running the baseline and the defended agent. This takes several minutes."):
+            eval_week8.self_check()
+            st.session_state.week8 = eval_week8.run_eval()
+
+    report = st.session_state.week8
+    if not report:
+        st.write("No eval yet. The same three recipe questions are run with defenses off, then on.")
+        return
+
+    before = report["before"]
+    after = report["after"]
+    st.markdown(
+        f"**Quiet give-up:** {before['quiet_give_up_rate']:.0%} before, "
+        f"{after['quiet_give_up_rate']:.0%} after."
+    )
+    st.markdown(
+        f"**Outcome vs trajectory gap:** {before['gap_count']} before, {after['gap_count']} after "
+        f"(out of {before['cases']})."
+    )
+    st.markdown(
+        f"**Planted phrase during the full agent loop:** "
+        f"{'yes' if report['injection_before'] else 'no'} before the filter, "
+        f"{'yes' if report['injection_after'] else 'no'} after it."
+    )
+    if "probe_before" in report:
+        st.markdown(
+            f"**Same note, one read with the agent's instructions:** "
+            f"{'yes' if report['probe_before'] else 'no'} before the filter, "
+            f"{'yes' if report['probe_after'] else 'no'} after it."
+        )
+    table = [
+        {
+            "Run": "Before",
+            "Outcome rate": before["outcome_rate"],
+            "Trajectory rate": before["trajectory_rate"],
+            "Quiet give-up": before["quiet_give_up_rate"],
+            "Made-up calories": before["made_up_input_rate"],
+            "Tool-choice accuracy": before["mean_tool_choice_accuracy"],
+            "Tokens mean": before["mean_tokens"],
+            "Tokens p99": before["p99_tokens"],
+            "Cost mean (USD)": before["mean_cost_usd"],
+            "Cost p99 (USD)": before["p99_cost_usd"],
+        },
+        {
+            "Run": "After",
+            "Outcome rate": after["outcome_rate"],
+            "Trajectory rate": after["trajectory_rate"],
+            "Quiet give-up": after["quiet_give_up_rate"],
+            "Made-up calories": after["made_up_input_rate"],
+            "Tool-choice accuracy": after["mean_tool_choice_accuracy"],
+            "Tokens mean": after["mean_tokens"],
+            "Tokens p99": after["p99_tokens"],
+            "Cost mean (USD)": after["mean_cost_usd"],
+            "Cost p99 (USD)": after["p99_cost_usd"],
+        },
+    ]
+    st.dataframe(table, use_container_width=True)
+    st.markdown("**What can still get through**")
+    st.markdown(
+        "- A hidden instruction phrased differently from the patterns the filter knows.\n"
+        "- A calorie number printed on the cookbook page, if the model copies that instead of the tool.\n"
+        "- A user message that overrides the agent with different wording than the direct-injection check.\n"
+        "- The model's first tool choice can still be wrong. The trace shows when the controller repairs it."
+    )
+
+
 if mode == "Cookbook chat":
     render_cookbook()
 elif mode == "Recipe agent":
@@ -294,5 +378,7 @@ elif mode == "Fixed workflow":
         "workflow_messages",
         workflow.run_workflow,
     )
-else:
+elif mode == "Comparison":
     render_comparison()
+else:
+    render_week8()
