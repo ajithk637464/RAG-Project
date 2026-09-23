@@ -48,3 +48,15 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 LLM_MODEL = OLLAMA_MODEL if LLM_PROVIDER == "ollama" else "gpt-4o-mini"
+
+# --- Week 7 agent safeguards ---
+# The manual loop stops when any one of these is hit, so a confused model
+# cannot keep calling tools or run up a bill.
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "8"))
+AGENT_TIMEOUT_SECONDS = float(os.getenv("AGENT_TIMEOUT_SECONDS", "180"))
+AGENT_MAX_TOTAL_TOKENS = int(os.getenv("AGENT_MAX_TOTAL_TOKENS", "12000"))
+
+# Public list prices for gpt-4o-mini. Used only when LLM_PROVIDER=openai.
+# A local Ollama model is reported as $0.
+OPENAI_INPUT_COST_PER_1M = float(os.getenv("OPENAI_INPUT_COST_PER_1M", "0.15"))
+OPENAI_OUTPUT_COST_PER_1M = float(os.getenv("OPENAI_OUTPUT_COST_PER_1M", "0.60"))

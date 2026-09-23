@@ -281,27 +281,29 @@ def build_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
-def generate_answer(question: str, chunks: list[dict]) -> str:
-    """
-    Phase 7: ask the LLM to answer using ONLY the retrieved chunks.
+def estimate_tokens(text: str) -> int:
+    """Rough token count when the API does not report usage (~4 characters per token)."""
+    return max(1, len(text) // 4) if text else 0
 
-    If nothing was retrieved, we don't even call the LLM - there's nothing
-    it could truthfully answer from, so we return the refusal directly.
-    """
-    if not chunks:
-        return "I couldn't find that in the cookbook."
 
-    context = build_context(chunks)
+def complete_chat(messages: list[dict], temperature: float = 0, max_tokens: int = None) -> dict:
+    """
+    One LLM call through the existing client.
+
+    Returns the text plus prompt/completion token counts so the agent and the
+    fixed workflow can be compared on cost. If the server omits usage, the
+    counts are estimated and marked.
+    """
     client = get_llm_client()
+    kwargs = {
+        "model": config.LLM_MODEL,
+        "temperature": temperature,
+        "messages": messages,
+    }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
     try:
-        response = client.chat.completions.create(
-            model=config.LLM_MODEL,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Context:\n\n{context}\n\nQuestion: {question}"},
-            ],
-        )
+        response = client.chat.completions.create(**kwargs)
     except Exception as e:
         if config.LLM_PROVIDER == "ollama":
             raise RuntimeError(
@@ -310,7 +312,62 @@ def generate_answer(question: str, chunks: list[dict]) -> str:
                 f"(`ollama pull {config.LLM_MODEL}`). Original error: {e}"
             ) from e
         raise
-    return response.choices[0].message.content.strip()
+
+    content = (response.choices[0].message.content or "").strip()
+    usage = getattr(response, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+    completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+    if prompt_tokens is None and usage is not None:
+        prompt_tokens = getattr(usage, "input_tokens", None)
+        completion_tokens = getattr(usage, "output_tokens", None)
+    if prompt_tokens:
+        return {
+            "content": content,
+            "prompt_tokens": int(prompt_tokens),
+            "completion_tokens": int(completion_tokens or 0),
+            "usage_estimated": False,
+        }
+
+    prompt_text = "\n".join((message.get("content") or "") for message in messages)
+    return {
+        "content": content,
+        "prompt_tokens": estimate_tokens(prompt_text),
+        "completion_tokens": estimate_tokens(content),
+        "usage_estimated": True,
+    }
+
+
+def generate_answer_with_usage(question: str, chunks: list[dict]) -> dict:
+    """
+    Phase 7, plus token counts.
+
+    If nothing was retrieved, we don't call the LLM — there is nothing it
+    could truthfully answer from — and token counts stay at zero.
+    """
+    if not chunks:
+        return {
+            "answer": "I couldn't find that in the cookbook.",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "usage_estimated": False,
+        }
+
+    context = build_context(chunks)
+    result = complete_chat([
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Context:\n\n{context}\n\nQuestion: {question}"},
+    ])
+    return {
+        "answer": result["content"],
+        "prompt_tokens": result["prompt_tokens"],
+        "completion_tokens": result["completion_tokens"],
+        "usage_estimated": result["usage_estimated"],
+    }
+
+
+def generate_answer(question: str, chunks: list[dict]) -> str:
+    """Ask the LLM to answer using ONLY the retrieved chunks."""
+    return generate_answer_with_usage(question, chunks)["answer"]
 
 
 def answer_question(question: str, top_k: int = None) -> dict:
